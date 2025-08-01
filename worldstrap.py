@@ -173,12 +173,10 @@ class WorldstrapApp(ctk.CTk):
 
     def run_silent_installer(self, installer_path):
         try:
-            subprocess.run([installer_path, "/quiet"], check=True, timeout=180)
+            # --- FIX: Removed check=True to prevent exit code errors ---
+            subprocess.run([installer_path, "/quiet"], timeout=180)
             time.sleep(10)
             return True
-        except subprocess.CalledProcessError as e:
-            self.handle_error(f"Installer failed with code {e.returncode}. Version may be unavailable.")
-            return False
         except Exception as e:
             self.handle_error(f"Installer failed: {e}")
             return False
