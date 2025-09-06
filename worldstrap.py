@@ -2,6 +2,7 @@ import sys
 import os
 import subprocess
 import ctypes
+import site # Add this import
 
 def run_as_admin():
     """
@@ -19,6 +20,13 @@ def run_as_admin():
 
 def check_and_install_dependencies():
     """Checks for required packages and installs them if they are missing."""
+    # --- FIX: Add user's site-packages to the Python path ---
+    # This helps find modules even if the environment PATH is not set correctly,
+    # a common issue with Microsoft Store versions of Python.
+    user_site_packages = site.getusersitepackages()
+    if user_site_packages not in sys.path:
+        sys.path.append(user_site_packages)
+
     required_packages = {
         "customtkinter": "customtkinter",
         "requests": "requests",
@@ -239,3 +247,4 @@ if __name__ == "__main__":
             messagebox.showerror("Critical Error", f"A critical startup error occurred:\n\n{e}")
         except:
             print(f"A critical error occurred and the GUI could not be displayed: {e}")
+
