@@ -52,6 +52,7 @@ import shutil
 import tempfile
 import time
 import threading
+import io
 from urllib3.exceptions import InsecureRequestWarning
 from tkinter import messagebox
 from PIL import Image, ImageTk
