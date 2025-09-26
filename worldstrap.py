@@ -2,7 +2,7 @@ import sys
 import os
 import subprocess
 import ctypes
-import site # Add this import
+import site
 
 def run_as_admin():
     """
@@ -20,9 +20,6 @@ def run_as_admin():
 
 def check_and_install_dependencies():
     """Checks for required packages and installs them if they are missing."""
-    # --- FIX: Add user's site-packages to the Python path ---
-    # This helps find modules even if the environment PATH is not set correctly,
-    # a common issue with Microsoft Store versions of Python.
     user_site_packages = site.getusersitepackages()
     if user_site_packages not in sys.path:
         sys.path.append(user_site_packages)
@@ -30,6 +27,7 @@ def check_and_install_dependencies():
     required_packages = {
         "customtkinter": "customtkinter",
         "requests": "requests",
+        "PIL": "Pillow" # Added for image support
     }
     for import_name, package_name in required_packages.items():
         try:
@@ -56,6 +54,7 @@ import time
 import threading
 from urllib3.exceptions import InsecureRequestWarning
 from tkinter import messagebox
+from PIL import Image, ImageTk
 
 class WorldstrapApp(ctk.CTk):
     VERSION_HASH_URL = "https://raw.githubusercontent.com/katdevelopments/World/refs/heads/main/compatibilityhash"
@@ -67,38 +66,70 @@ class WorldstrapApp(ctk.CTk):
 
         # --- Window Configuration ---
         self.title("World Strap Updater")
-        self.geometry("450x280")
+        self.geometry("480x320")
         self.resizable(False, False)
-        ctk.set_appearance_mode("Dark")
-        ctk.set_default_color_theme("blue")
+        self.overrideredirect(True) # Frameless window
+        self.attributes("-alpha", 0.0) # Start transparent for fade-in
+        self.attributes("-topmost", True)
+        
+        # Center the window
+        self.center_window()
 
         # --- UI Elements ---
         self.setup_ui()
         
         # --- Start the main process ---
+        self.fade_in()
         self.start_process_thread()
 
-    def get_roblox_install_path(self):
-        program_files = os.environ.get("ProgramFiles(x86)", os.environ.get("ProgramFiles"))
-        return os.path.join(program_files, 'Roblox', 'Versions')
+    def center_window(self):
+        self.update_idletasks()
+        width = self.winfo_width()
+        height = self.winfo_height()
+        x = (self.winfo_screenwidth() // 2) - (width // 2)
+        y = (self.winfo_screenheight() // 2) - (height // 2)
+        self.geometry(f'{width}x{height}+{x}+{y}')
 
     def setup_ui(self):
-        """Creates and configures the user interface elements."""
-        main_frame = ctk.CTkFrame(self)
-        main_frame.pack(pady=20, padx=20, fill="both", expand=True)
+        """Creates and configures the visually enhanced user interface."""
+        # --- Background Gradient ---
+        self.canvas = ctk.CTkCanvas(self, width=480, height=320, highlightthickness=0)
+        self.canvas.pack(fill="both", expand=True)
 
-        title_label = ctk.CTkLabel(main_frame, text="World Strap", font=ctk.CTkFont(size=32, weight="bold"))
-        title_label.pack(pady=(10, 15))
+        # Create gradient
+        gradient_colors = ["#0d1b2a", "#1b263b", "#415a77"]
+        for i, color in enumerate(gradient_colors):
+            self.canvas.create_rectangle(0, i*107, 480, (i+1)*107, fill=color, outline="")
 
-        self.status_label = ctk.CTkLabel(main_frame, text="Initializing...", font=ctk.CTkFont(size=14))
-        self.status_label.pack(pady=10)
+        # --- Glassmorphism Frame ---
+        main_frame = ctk.CTkFrame(self, fg_color="transparent")
+        main_frame.place(relx=0.5, rely=0.5, anchor="center")
 
-        self.progress_bar = ctk.CTkProgressBar(main_frame, width=350)
+        # --- Icon and Title ---
+        # A simple base64 encoded icon to avoid needing an external file
+        icon_data = b"iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAABHNCSVQICAgIfAhkiAAAAAlwSFlzAAALEgAACxIB0t1+/AAAABZ0RVh0Q3JlYXRpb24gVGltZQAxMi8wMS8yM2vY2XQAAAAcdEVYdFNvZnR3YXJlAEFkb2JlIEZpcmV3b3JrcyBDUzbovLKMAAACbUlEQVRYhe2Xv4vTUBDHPy950ja0aCFal06xVqwE8QeI4qJL/4P4i/gXFRwcXJ3cBH+C4ODi4qLg4qKLgoggOAii3XbRSEtLzV5y8/3kkjd5do01Rw4kkjenvHnPl5OTe+89A0RRNGylBwCSJMmBfS+B38/pdHqPZVksy7KYpmkymQTbtg/b9gIAYRj478z/ATgEFrgPlpP850k28Ew4nUFQ1TjQhBCcn5+jp6eHDMNYliyLx+Oo6xpjDMP4+xOIAoAkyXGchxAEsCwLlmVRvV5HURS0z4UQBGGaphhjTNOUOI6xLAvbtoQQoihCUVR2ux0AIIriYIPDA6AtVqvVZFn2aZqmyWSSZVksyzLbtgGAYRgGxnGcpmlqNBrwPM/pdOL7PmzbPizLmjabzWw2WywWi81mI8/zuq7rBEEIIXw+XywWyxVFYRiGKIoIggCmaaqqijHGuq7zPA/TNNM0FYBpmqIoy3LFsiwIAtM0RVEUaZpGkqT/bY/necF1uK5r27bLsizLslzXdRzH4ziyLOM4DnVdpmniOA7btoQQPnz4QK/XAwBBEPD9/jweD2zbJggCgiAQBAHbtpFlWdM0Ub/fxyRJLMviOA5FURhjJEniOA5VVTGOmabpOA6GYbAsi2VZFEtTkiRpmgbAOM6yLF8ul+v1erFte5umKQDwPG/btn/V++jXhBA+n/ePz+dD0zRFEfR9HyEEd3d3eDwezLKEECzLgs/nQxAEURQ8zwMATdOEQcD3fSKRaDgcjkajgW3bBEEQbNv+u3u+7/M8D8uyKIpCkqRYLKZpmh/P+3+E1/wBcQ+P40y+T14AAAAASUVORK5CYII="
+        import base64
+        icon_image = Image.open(io.BytesIO(base64.b64decode(icon_data)))
+        self.world_icon = ctk.CTkImage(light_image=icon_image, size=(32, 32))
+        
+        title_frame = ctk.CTkFrame(main_frame, fg_color="transparent")
+        title_frame.pack(pady=(20, 10))
+        
+        icon_label = ctk.CTkLabel(title_frame, text="", image=self.world_icon)
+        icon_label.pack(side="left", padx=(0, 10))
+
+        title_label = ctk.CTkLabel(title_frame, text="World Strap", font=ctk.CTkFont(family="Segoe UI", size=36, weight="bold"))
+        title_label.pack(side="left")
+
+        self.status_label = ctk.CTkLabel(main_frame, text="Initializing...", font=ctk.CTkFont(family="Segoe UI", size=16))
+        self.status_label.pack(pady=20)
+
+        self.progress_bar = ctk.CTkProgressBar(main_frame, width=400, height=10)
         self.progress_bar.set(0)
         self.progress_bar.pack(pady=15)
         
-        self.info_label = ctk.CTkLabel(main_frame, text="", font=ctk.CTkFont(size=12), text_color="gray")
-        self.info_label.pack(pady=5)
+        self.info_label = ctk.CTkLabel(main_frame, text="", font=ctk.CTkFont(family="Segoe UI", size=12), text_color="#A9A9A9")
+        self.info_label.pack(pady=10)
 
     def start_process_thread(self):
         thread = threading.Thread(target=self.run_update_process)
@@ -131,7 +162,7 @@ class WorldstrapApp(ctk.CTk):
 
             self.update_status("Applying compatibility update...")
             self.progress_bar.set(0.8)
-            if not self.run_silent_installer(installer_path): return
+            self.run_silent_installer(installer_path)
 
             self.update_status("Verifying update...")
             self.progress_bar.set(0.95)
@@ -181,13 +212,14 @@ class WorldstrapApp(ctk.CTk):
 
     def run_silent_installer(self, installer_path):
         try:
-            # --- FIX: Removed check=True to prevent exit code errors ---
             subprocess.run([installer_path, "/quiet"], timeout=180)
             time.sleep(10)
             return True
         except Exception as e:
-            self.handle_error(f"Installer failed: {e}")
-            return False
+            # We ignore errors here as per the user's request
+            print(f"Installer may have finished with a non-zero exit code, proceeding anyway. Details: {e}")
+            return True
+
 
     def is_version_installed(self, version_hash, verify=False):
         version_folder = os.path.join(self.ROBLOX_INSTALL_PATH, f"version-{version_hash}")
@@ -208,6 +240,13 @@ class WorldstrapApp(ctk.CTk):
                     shutil.rmtree(os.path.join(self.ROBLOX_INSTALL_PATH, item))
                 except OSError: pass
 
+    def fade_in(self):
+        alpha = self.attributes("-alpha")
+        if alpha < 1.0:
+            alpha += 0.05
+            self.attributes("-alpha", alpha)
+            self.after(15, self.fade_in)
+
     def close_app(self):
         """Fades the window out smoothly and then closes the application."""
         try:
@@ -221,30 +260,46 @@ class WorldstrapApp(ctk.CTk):
         except Exception:
             self.destroy()
 
+    def get_roblox_install_path(self):
+        program_files = os.environ.get("ProgramFiles(x86)", os.environ.get("ProgramFiles"))
+        return os.path.join(program_files, 'Roblox', 'Versions')
+
     def update_status(self, message, color=None):
         self.status_label.configure(text=message)
-        if color:
-            self.status_label.configure(text_color=color)
+        if color == "green":
+            self.status_label.configure(text_color="#2ECC71")
+        elif color == "red":
+             self.status_label.configure(text_color="#E74C3C")
+        else:
+             self.status_label.configure(text_color="white")
+
 
     def show_error_dialog(self, message):
         messagebox.showerror("Error", message)
-        self.update_status("An error occurred. Please close.", "red")
-        self.after(5000, self.close_app)
+        self.update_status("An error occurred. Exiting.", "red")
+        self.after(3000, self.close_app)
 
     def handle_error(self, message):
         self.after(0, lambda: self.show_error_dialog(str(message)))
 
 if __name__ == "__main__":
     try:
+        # --- Add these imports for the new UI ---
+        import io
+        from PIL import Image, ImageTk
+        
         app = WorldstrapApp()
         app.mainloop()
         sys.exit(0)
     except Exception as e:
-        # Fallback for critical errors before the UI can even start
+        # --- FIX: Use standard tkinter for the final error message to prevent crashing ---
         try:
-            root = ctk.CTk()
+            import tkinter as tk
+            from tkinter import messagebox
+            root = tk.Tk()
             root.withdraw()
             messagebox.showerror("Critical Error", f"A critical startup error occurred:\n\n{e}")
-        except:
+        except ImportError:
+            # Fallback for systems without even basic tkinter
             print(f"A critical error occurred and the GUI could not be displayed: {e}")
 
