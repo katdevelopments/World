@@ -70,8 +70,8 @@ class WorldstrapApp(ctk.CTk):
         # --- Window Configuration ---
         self.title("World Strap Updater")
         self.geometry("480x320")
-        self.resizable(False, False)
-        self.overrideredirect(True) # Frameless window
+        self.resizable(True, True) # Allow the window to be resized
+        # self.overrideredirect(True) # Removed to allow dragging via title bar
         self.attributes("-alpha", 0.0) # Start transparent for fade-in
         self.attributes("-topmost", True)
         
