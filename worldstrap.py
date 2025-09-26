@@ -53,6 +53,7 @@ import tempfile
 import time
 import threading
 import io
+import base64
 from urllib3.exceptions import InsecureRequestWarning
 from tkinter import messagebox
 from PIL import Image, ImageTk
@@ -107,17 +108,19 @@ class WorldstrapApp(ctk.CTk):
         main_frame.place(relx=0.5, rely=0.5, anchor="center")
 
         # --- Icon and Title ---
-        # A simple base64 encoded icon to avoid needing an external file
-        icon_data = b"iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAABHNCSVQICAgIfAhkiAAAAAlwSFlzAAALEgAACxIB0t1+/AAAABZ0RVh0Q3JlYXRpb24gVGltZQAxMi8wMS8yM2vY2XQAAAAcdEVYdFNvZnR3YXJlAEFkb2JlIEZpcmV3b3JrcyBDUzbovLKMAAACbUlEQVRYhe2Xv4vTUBDHPy950ja0aCFal06xVqwE8QeI4qJL/4P4i/gXFRwcXJ3cBH+C4ODi4qLg4qKLgoggOAii3XbRSEtLzV5y8/3kkjd5do01Rw4kkjenvHnPl5OTe+89A0RRNGylBwCSJMmBfS+B38/pdHqPZVksy7KYpmkymQTbtg/b9gIAYRj478z/ATgEFrgPlpP850k28Ew4nUFQ1TjQhBCcn5+jp6eHDMNYliyLx+Oo6xpjDMP4+xOIAoAkyXGchxAEsCwLlmVRvV5HURS0z4UQBGGaphhjTNOUOI6xLAvbtoQQoihCUVR2ux0AIIriYIPDA6AtVqvVZFn2aZqmyWSSZVksyzLbtgGAYRgGxnGcpmlqNBrwPM/pdOL7PmzbPizLmjabzWw2WywWi81mI8/zuq7rBEEIIXw+XywWyxVFYRiGKIoIggCmaaqqijHGuq7zPA/TNNM0FYBpmqIoy3LFsiwIAtM0RVEUaZpGkqT/bY/necF1uK5r27bLsizLslzXdRzH4ziyLOM4DnVdpmniOA7btoQQPnz4QK/XAwBBEPD9/jweD2zbJggCgiAQBAHbtpFlWdM0Ub/fxyRJLMviOA5FURhjJEniOA5VVTGOmabpOA6GYbAsi2VZFEtTkiRpmgbAOM6yLF8ul+v1erFte5umKQDwPG/btn/V++jXhBA+n/ePz+dD0zRFEfR9HyEEd3d3eDwezLKEECzLgs/nQxAEURQ8zwMATdOEQcD3fSKRaDgcjkajgW3bBEEQbNv+u3u+7/M8D8uyKIpCkqRYLKZpmh/P+3+E1/wBcQ+P40y+T14AAAAASUVORK5CYII="
-        import base64
-        icon_image = Image.open(io.BytesIO(base64.b64decode(icon_data)))
-        self.world_icon = ctk.CTkImage(light_image=icon_image, size=(32, 32))
-        
         title_frame = ctk.CTkFrame(main_frame, fg_color="transparent")
         title_frame.pack(pady=(20, 10))
         
-        icon_label = ctk.CTkLabel(title_frame, text="", image=self.world_icon)
-        icon_label.pack(side="left", padx=(0, 10))
+        try:
+            # A simple base64 encoded icon to avoid needing an external file
+            icon_data = b"iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAABHNCSVQICAgIfAhkiAAAAAlwSFlzAAALEgAACxIB0t1+/AAAABZ0RVh0Q3JlYXRpb24gVGltZQAxMi8wMS8yM2vY2XQAAAAcdEVYdFNvZnR3YXJlAEFkb2JlIEZpcmV3b3JrcyBDUzbovLKMAAACbUlEQVRYhe2Xv4vTUBDHPy950ja0aCFal06xVqwE8QeI4qJL/4P4i/gXFRwcXJ3cBH+C4ODi4qLg4qKLgoggOAii3XbRSEtLzV5y8/3kkjd5do01Rw4kkjenvHnPl5OTe+89A0RRNGylBwCSJMmBfS+B38/pdHqPZVksy7KYpmkymQTbtg/b9gIAYRj478z/ATgEFrgPlpP850k28Ew4nUFQ1TjQhBCcn5+jp6eHDMNYliyLx+Oo6xpjDMP4+xOIAoAkyXGchxAEsCwLlmVRvV5HURS0z4UQBGGaphhjTNOUOI6xLAvbtoQQoihCUVR2ux0AIIriYIPDA6AtVqvVZFn2aZqmyWSSZVksyzLbtgGAYRgGxnGcpmlqNBrwPM/pdOL7PmzbPizLmjabzWw2WywWi81mI8/zuq7rBEEIIXw+XywWyxVFYRiGKIoIggCmaaqqijHGuq7zPA/TNNM0FYBpmqIoy3LFsiwIAtM0RVEUaZpGkqT/bY/necF1uK5r27bLsizLslzXdRzH4ziyLOM4DnVdpmniOA7btoQQPnz4QK/XAwBBEPD9/jweD2zbJggCgiAQBAHbtpFlWdM0Ub/fxyRJLMviOA5FURhjJEniOA5VVTGOmabpOA6GYbAsi2VZFEtTkiRpmgbAOM6yLF8ul+v1erFte5umKQDwPG/btn/V++jXhBA+n/ePz+dD0zRFEfR9HyEEd3d3eDwezLKEECzLgs/nQxAEURQ8zwMATdOEQcD3fSKRaDgcjkajgW3bBEEQbNv+u3u+7/M8D8uyKIpCkqRYLKZpmh/P+3+E1/wBcQ+P40y+T14AAAAASUVORK5CYII="
+            icon_image = Image.open(io.BytesIO(base64.b64decode(icon_data)))
+            self.world_icon = ctk.CTkImage(light_image=icon_image, size=(32, 32))
+            
+            icon_label = ctk.CTkLabel(title_frame, text="", image=self.world_icon)
+            icon_label.pack(side="left", padx=(0, 10))
+        except Exception as e:
+            print(f"Warning: Could not load application icon. Continuing without it. Error: {e}")
 
         title_label = ctk.CTkLabel(title_frame, text="World Strap", font=ctk.CTkFont(family="Segoe UI", size=36, weight="bold"))
         title_label.pack(side="left")
@@ -285,10 +288,6 @@ class WorldstrapApp(ctk.CTk):
 
 if __name__ == "__main__":
     try:
-        # --- Add these imports for the new UI ---
-        import io
-        from PIL import Image, ImageTk
-        
         app = WorldstrapApp()
         app.mainloop()
         sys.exit(0)
