@@ -65,6 +65,7 @@ class WorldstrapApp(ctk.CTk):
         super().__init__()
 
         self.ROBLOX_INSTALL_PATH = self.get_roblox_install_path()
+        self.temp_icon_path = None # To store the path of the temporary icon file
 
         # --- Window Configuration ---
         self.title("World Strap Updater")
@@ -113,14 +114,23 @@ class WorldstrapApp(ctk.CTk):
         
         try:
             # A simple base64 encoded icon to avoid needing an external file
-            icon_data = b"iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAABHNCSVQICAgIfAhkiAAAAAlwSFlzAAALEgAACxIB0t1+/AAAABZ0RVh0Q3JlYXRpb24gVGltZQAxMi8wMS8yM2vY2XQAAAAcdEVYdFNvZnR3YXJlAEFkb2JlIEZpcmV3b3JrcyBDUzbovLKMAAACbUlEQVRYhe2Xv4vTUBDHPy950ja0aCFal06xVqwE8QeI4qJL/4P4i/gXFRwcXJ3cBH+C4ODi4qLg4qKLgoggOAii3XbRSEtLzV5y8/3kkjd5do01Rw4kkjenvHnPl5OTe+89A0RRNGylBwCSJMmBfS+B38/pdHqPZVksy7KYpmkymQTbtg/b9gIAYRj478z/ATgEFrgPlpP850k28Ew4nUFQ1TjQhBCcn5+jp6eHDMNYliyLx+Oo6xpjDMP4+xOIAoAkyXGchxAEsCwLlmVRvV5HURS0z4UQBGGaphhjTNOUOI6xLAvbtoQQoihCUVR2ux0AIIriYIPDA6AtVqvVZFn2aZqmyWSSZVksyzLbtgGAYRgGxnGcpmlqNBrwPM/pdOL7PmzbPizLmjabzWw2WywWi81mI8/zuq7rBEEIIXw+XywWyxVFYRiGKIoIggCmaaqqijHGuq7zPA/TNNM0FYBpmqIoy3LFsiwIAtM0RVEUaZpGkqT/bY/necF1uK5r27bLsizLslzXdRzH4ziyLOM4DnVdpmniOA7btoQQPnz4QK/XAwBBEPD9/jweD2zbJggCgiAQBAHbtpFlWdM0Ub/fxyRJLMviOA5FURhjJEniOA5VVTGOmabpOA6GYbAsi2VZFEtTkiRpmgbAOM6yLF8ul+v1erFte5umKQDwPG/btn/V++jXhBA+n/ePz+dD0zRFEfR9HyEEd3d3eDwezLKEECzLgs/nQxAEURQ8zwMATdOEQcD3fSKRaDgcjkajgW3bBEEQbNv+u3u+7/M8D8uyKIpCkqRYLKZpmh/P+3+E1/wBcQ+P40y+T14AAAAASUVORK5CYII="
-            icon_image = Image.open(io.BytesIO(base64.b64decode(icon_data)))
+            icon_data = base64.b64decode(b"iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAABHNCSVQICAgIfAhkiAAAAAlwSFlzAAALEgAACxIB0t1+/AAAABZ0RVh0Q3JlYXRpb24gVGltZQAxMi8wMS8yM2vY2XQAAAAcdEVYdFNvZnR3YXJlAEFkb2JlIEZpcmV3b3JrcyBDUzbovLKMAAACbUlEQVRYhe2Xv4vTUBDHPy950ja0aCFal06xVqwE8QeI4qJL/4P4i/gXFRwcXJ3cBH+C4ODi4qLg4qKLgoggOAii3XbRSEtLzV5y8/3kkjd5do01Rw4kkjenvHnPl5OTe+89A0RRNGylBwCSJMmBfS+B38/pdHqPZVksy7KYpmkymQTbtg/b9gIAYRj478z/ATgEFrgPlpP850k28Ew4nUFQ1TjQhBCcn5+jp6eHDMNYliyLx+Oo6xpjDMP4+xOIAoAkyXGchxAEsCwLlmVRvV5HURS0z4UQBGGaphhjTNOUOI6xLAvbtoQQoihCUVR2ux0AIIriYIPDA6AtVqvVZFn2aZqmyWSSZVksyzLbtgGAYRgGxnGcpmlqNBrwPM/pdOL7PmzbPizLmjabzWw2WywWi81mI8/zuq7rBEEIIXw+XywWyxVFYRiGKIoIggCmaaqqijHGuq7zPA/TNNM0FYBpmqIoy3LFsiwIAtM0RVEUaZpGkqT/bY/necF1uK5r27bLsizLslzXdRzH4ziyLOM4DnVdpmniOA7btoQQPnz4QK/XAwBBEPD9/jweD2zbJggCgiAQBAHbtpFlWdM0Ub/fxyRJLMviOA5FURhjJEniOA5VVTGOmabpOA6GYbAsi2VZFEtTkiRpmgbAOM6yLF8ul+v1erFte5umKQDwPG/btn/V++jXhBA+n/ePz+dD0zRFEfR9HyEEd3d3eDwezLKEECzLgs/nQxAEURQ8zwMATdOEQcD3fSKRaDgcjkajgW3bBEEQbNv+u3u+7/M8D8uyKIpCkqRYLKZpmh/P+3+E1/wBcQ+P40y+T14AAAAASUVORK5CYII=")
+            
+            # Write icon to a temporary file for robust loading
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as temp_icon:
+                temp_icon.write(icon_data)
+                self.temp_icon_path = temp_icon.name
+
+            icon_image = Image.open(self.temp_icon_path)
             self.world_icon = ctk.CTkImage(light_image=icon_image, size=(32, 32))
             
             icon_label = ctk.CTkLabel(title_frame, text="", image=self.world_icon)
             icon_label.pack(side="left", padx=(0, 10))
         except Exception as e:
             print(f"Warning: Could not load application icon. Continuing without it. Error: {e}")
+            if self.temp_icon_path and os.path.exists(self.temp_icon_path):
+                os.remove(self.temp_icon_path)
+                self.temp_icon_path = None
 
         title_label = ctk.CTkLabel(title_frame, text="World Strap", font=ctk.CTkFont(family="Segoe UI", size=36, weight="bold"))
         title_label.pack(side="left")
@@ -260,8 +270,12 @@ class WorldstrapApp(ctk.CTk):
                 self.attributes("-alpha", alpha)
                 self.after(20, self.close_app)
             else:
+                if self.temp_icon_path and os.path.exists(self.temp_icon_path):
+                    os.remove(self.temp_icon_path)
                 self.destroy()
         except Exception:
+            if self.temp_icon_path and os.path.exists(self.temp_icon_path):
+                os.remove(self.temp_icon_path)
             self.destroy()
 
     def get_roblox_install_path(self):
