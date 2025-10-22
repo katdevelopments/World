@@ -27,13 +27,14 @@ def check_and_install_dependencies():
     required_packages = {
         "customtkinter": "customtkinter",
         "requests": "requests",
-        "PIL": "Pillow" # Added for image support
+        "PIL": "Pillow",
+        "win32api": "pywin32" # Added for Windows icon extraction
     }
     for import_name, package_name in required_packages.items():
         try:
             __import__(import_name)
         except ImportError:
-            print(f"'{package_name}' not found. Installing...")
+            print(f"'{package_name}' (for {import_name}) not found. Installing...")
             try:
                 subprocess.check_call([sys.executable, "-m", "pip", "install", package_name])
             except subprocess.CalledProcessError:
@@ -53,19 +54,34 @@ import tempfile
 import time
 import threading
 import io
-import base64
+# import base64 # No longer needed
 from urllib3.exceptions import InsecureRequestWarning
 from tkinter import messagebox
 from PIL import Image, ImageTk
 
+# Import windows modules for icon extraction
+try:
+    import win32gui
+    import win32ui
+    import win32con
+    import win32api
+except ImportError:
+    # The dependency checker should have caught this, but as a safeguard:
+    print("FATAL: pywin32 libraries not found. Please run: pip install pywin32")
+    # We can't use messagebox here as tkinter isn't fully init'd
+    sys.exit(1)
+
+
 class WorldstrapApp(ctk.CTk):
     VERSION_HASH_URL = "https://raw.githubusercontent.com/katdevelopments/World/refs/heads/main/compatibilityhash"
+    # Path to the executable from which to extract the icon
+    WORLD_EXE_PATH = r"C:\Program Files (x86)\World\Release\world.exe"
     
     def __init__(self):
         super().__init__()
 
         self.ROBLOX_INSTALL_PATH = self.get_roblox_install_path()
-        self.temp_icon_path = None # To store the path of the temporary icon file
+        # self.temp_icon_path = None # No longer needed
 
         # --- Window Configuration ---
         self.title("World Strap Updater")
@@ -93,6 +109,80 @@ class WorldstrapApp(ctk.CTk):
         y = (self.winfo_screenheight() // 2) - (height // 2)
         self.geometry(f'{width}x{height}+{x}+{y}')
 
+    def extract_icon_as_pil(self, exe_path, size=(32, 32)):
+        """Extracts the icon from an executable and returns it as a PIL Image."""
+        try:
+            # Extract large icon (index 0)
+            large_icons, small_icons = win32gui.ExtractIconEx(exe_path, 0, 1)
+            
+            if not large_icons:
+                if not small_icons:
+                    print(f"Error: No icons found in {exe_path}.")
+                    return None
+                print("Warning: No large icon found, using small icon.")
+                hicon = small_icons[0]
+                ico_x = win32api.GetSystemMetrics(win32con.SM_CXSMICON)
+                ico_y = win32api.GetSystemMetrics(win32con.SM_CYSMICON)
+                # Clean up other icons
+                for icon in large_icons: win32gui.DestroyIcon(icon)
+                for i, icon in enumerate(small_icons):
+                    if i != 0: win32gui.DestroyIcon(icon)
+            else:
+                hicon = large_icons[0]
+                ico_x = win32api.GetSystemMetrics(win32con.SM_CXICON)
+                ico_y = win32api.GetSystemMetrics(win32con.SM_CYICON)
+                # Clean up other icons
+                for i, icon in enumerate(large_icons):
+                    if i != 0: win32gui.DestroyIcon(icon)
+                for icon in small_icons: win32gui.DestroyIcon(icon)
+            
+            # Create a device context
+            hdc = win32ui.CreateDCFromHandle(win32gui.GetDC(0))
+            hbmp = win32ui.CreateBitmap()
+            hbmp.CreateCompatibleBitmap(hdc, ico_x, ico_y)
+            hmemdc = hdc.CreateCompatibleDC()
+            
+            hmemdc.SelectObject(hbmp)
+            
+            # Draw the icon
+            hmemdc.DrawIcon((0, 0), hicon)
+            
+            # Get bitmap bits
+            bmp_bits = hbmp.GetBitmapBits(True)
+            
+            # Create PIL image
+            img = Image.frombuffer(
+                'RGBA',
+                (ico_x, ico_y),
+                bmp_bits,
+                'raw',
+                'BGRA',
+                0,
+                1
+            )
+            
+            # Clean up
+            win32gui.DestroyIcon(hicon)
+            hmemdc.DeleteDC()
+            hdc.DeleteDC()
+            win32gui.DeleteObject(hbmp.GetHandle())
+
+            if size != (ico_x, ico_y):
+                 img = img.resize(size, Image.Resampling.LANCZOS)
+
+            return img
+            
+        except Exception as e:
+            print(f"Failed to extract icon from {self.WORLD_EXE_PATH}: {e}")
+            # Clean up just in case
+            try: win32gui.DestroyIcon(hicon)
+            except: pass
+            try: hmemdc.DeleteDC()
+            except: pass
+            try: hdc.DeleteDC()
+            except: pass
+            return None
+
     def setup_ui(self):
         """Creates and configures the visually enhanced user interface."""
         # --- Background Gradient ---
@@ -113,24 +203,25 @@ class WorldstrapApp(ctk.CTk):
         title_frame.pack(pady=(20, 10))
         
         try:
-            # A simple base64 encoded icon to avoid needing an external file
-            icon_data = base64.b64decode(b"iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAABHNCSVQICAgIfAhkiAAAAAlwSFlzAAALEgAACxIB0t1+/AAAABZ0RVh0Q3JlYXRpb24gVGltZQAxMi8wMS8yM2vY2XQAAAAcdEVYdFNvZnR3YXJlAEFkb2JlIEZpcmV3b3JrcyBDUzbovLKMAAACbUlEQVRYhe2Xv4vTUBDHPy950ja0aCFal06xVqwE8QeI4qJL/4P4i/gXFRwcXJ3cBH+C4ODi4qLg4qKLgoggOAii3XbRSEtLzV5y8/3kkjd5do01Rw4kkjenvHnPl5OTe+89A0RRNGylBwCSJMmBfS+B38/pdHqPZVksy7KYpmkymQTbtg/b9gIAYRj478z/ATgEFrgPlpP850k28Ew4nUFQ1TjQhBCcn5+jp6eHDMNYliyLx+Oo6xpjDMP4+xOIAoAkyXGchxAEsCwLlmVRvV5HURS0z4UQBGGaphhjTNOUOI6xLAvbtoQQoihCUVR2ux0AIIriYIPDA6AtVqvVZFn2aZqmyWSSZVksyzLbtgGAYRgGxnGcpmlqNBrwPM/pdOL7PmzbPizLmjabzWw2WywWi81mI8/zuq7rBEEIIXw+XywWyxVFYRiGKIoIggCmaaqqijHGuq7zPA/TNNM0FYBpmqIoy3LFsiwIAtM0RVEUaZpGkqT/bY/necF1uK5r27bLsizLslzXdRzH4ziyLOM4DnVdpmniOA7btoQQPnz4QK/XAwBBEPD9/jweD2zbJggCgiAQBAHbtpFlWdM0Ub/fxyRJLMviOA5FURhjJEniOA5VVTGOmabpOA6GYbAsi2VZFEtTkiRpmgbAOM6yLF8ul+v1erFte5umKQDwPG/btn/V++jXhBA+n/ePz+dD0zRFEfR9HyEEd3d3eDwezLKEECzLgs/nQxAEURQ8zwMATdOEQcD3fSKRaDgcjkajgW3bBEEQbNv+u3u+7/M8D8uyKIpCkqRYLKZpmh/P+3+E1/wBcQ+P40y+T14AAAAASUVORK5CYII=")
-            
-            # Write icon to a temporary file for robust loading
-            with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as temp_icon:
-                temp_icon.write(icon_data)
-                self.temp_icon_path = temp_icon.name
+            # --- NEW ICON LOGIC ---
+            if not os.path.exists(self.WORLD_EXE_PATH):
+                print(f"Warning: Icon path not found: {self.WORLD_EXE_PATH}")
+                raise FileNotFoundError("World.exe not found at specified path")
 
-            icon_image = Image.open(self.temp_icon_path)
-            self.world_icon = ctk.CTkImage(light_image=icon_image, size=(32, 32))
+            icon_image = self.extract_icon_as_pil(self.WORLD_EXE_PATH, size=(32, 32))
             
-            icon_label = ctk.CTkLabel(title_frame, text="", image=self.world_icon)
-            icon_label.pack(side="left", padx=(0, 10))
+            if icon_image:
+                self.world_icon = ctk.CTkImage(light_image=icon_image, size=(32, 32))
+                
+                icon_label = ctk.CTkLabel(title_frame, text="", image=self.world_icon)
+                icon_label.pack(side="left", padx=(0, 10))
+            else:
+                print("Warning: Could not extract icon. Continuing without it.")
+            # --- END NEW ICON LOGIC ---
+
         except Exception as e:
             print(f"Warning: Could not load application icon. Continuing without it. Error: {e}")
-            if self.temp_icon_path and os.path.exists(self.temp_icon_path):
-                os.remove(self.temp_icon_path)
-                self.temp_icon_path = None
+            # No temp file to clean up anymore
 
         title_label = ctk.CTkLabel(title_frame, text="World Strap", font=ctk.CTkFont(family="Segoe UI", size=36, weight="bold"))
         title_label.pack(side="left")
@@ -270,12 +361,8 @@ class WorldstrapApp(ctk.CTk):
                 self.attributes("-alpha", alpha)
                 self.after(20, self.close_app)
             else:
-                if self.temp_icon_path and os.path.exists(self.temp_icon_path):
-                    os.remove(self.temp_icon_path)
                 self.destroy()
         except Exception:
-            if self.temp_icon_path and os.path.exists(self.temp_icon_path):
-                os.remove(self.temp_icon_path)
             self.destroy()
 
     def get_roblox_install_path(self):
@@ -287,9 +374,9 @@ class WorldstrapApp(ctk.CTk):
         if color == "green":
             self.status_label.configure(text_color="#2ECC71")
         elif color == "red":
-             self.status_label.configure(text_color="#E74C3C")
+            self.status_label.configure(text_color="#E74C3C")
         else:
-             self.status_label.configure(text_color="white")
+            self.status_label.configure(text_color="white")
 
 
     def show_error_dialog(self, message):
@@ -316,4 +403,3 @@ if __name__ == "__main__":
         except ImportError:
             # Fallback for systems without even basic tkinter
             print(f"A critical error occurred and the GUI could not be displayed: {e}")
-
