@@ -3,23 +3,80 @@ import os
 import subprocess
 import ctypes
 import site
+import threading
+import time
+import tempfile
+import shutil
+import traceback
+
+# --- 0. Global Crash Handler (Prevents instant closing) ---
+def global_exception_handler(exc_type, exc_value, exc_traceback):
+    """
+    Catches ALL unhandled exceptions to prevent the window from 
+    vanishing instantly without an error message.
+    """
+    print("\n" + "="*60)
+    print("CRITICAL UNHANDLED EXCEPTION")
+    print("="*60)
+    traceback.print_exception(exc_type, exc_value, exc_traceback)
+    print("="*60)
+    print("The application has crashed. See error above.")
+    input("Press Enter to exit...")
+    sys.exit(1)
+
+# Register the handler immediately
+sys.excepthook = global_exception_handler
+
+
+# --- 1. Admin & Dependency Checks ---
 
 def run_as_admin():
     """
     Checks if the script is running with admin privileges. If not, it re-launches
     itself with a UAC prompt and exits the current instance.
     """
+    print("[Startup] Checking permissions...")
     try:
         is_admin = (os.getuid() == 0)
     except AttributeError:
-        is_admin = ctypes.windll.shell32.IsUserAnAdmin() != 0
+        try:
+            is_admin = ctypes.windll.shell32.IsUserAnAdmin() != 0
+        except Exception:
+            is_admin = False
 
     if not is_admin:
-        ctypes.windll.shell32.ShellExecuteW(None, "runas", sys.executable, " ".join(sys.argv), None, 1)
-        sys.exit(0)
+        print("[Startup] Requesting elevation...")
+        # Re-launch with admin rights
+        script_path = os.path.abspath(sys.argv[0])
+        params = ' '.join([f'"{arg}"' for arg in sys.argv[1:]])
+        
+        try:
+            if not script_path.endswith(".exe"):
+                # If running as a .py script
+                cmd = f'"{script_path}" {params}'
+                ret = ctypes.windll.shell32.ShellExecuteW(None, "runas", sys.executable, cmd, None, 1)
+            else:
+                # If running as a compiled exe
+                ret = ctypes.windll.shell32.ShellExecuteW(None, "runas", sys.executable, params, None, 1)
+            
+            # Check if the shell execution was successful (returns > 32 on success)
+            if int(ret) > 32:
+                print("[Startup] Elevation request sent. Exiting parent process.")
+                sys.exit(0)
+            else:
+                print(f"[Startup] Failed to elevate privileges. Error code: {ret}")
+                input("Press Enter to exit...")
+                sys.exit(1)
+        except Exception as e:
+            print(f"[Startup] Elevation failed with exception: {e}")
+            input("Press Enter to exit...")
+            sys.exit(1)
+    else:
+        print("[Startup] Running with Admin privileges.")
 
 def check_and_install_dependencies():
     """Checks for required packages and installs them if they are missing."""
+    print("[Startup] Checking dependencies...")
     user_site_packages = site.getusersitepackages()
     if user_site_packages not in sys.path:
         sys.path.append(user_site_packages)
@@ -28,8 +85,10 @@ def check_and_install_dependencies():
         "customtkinter": "customtkinter",
         "requests": "requests",
         "PIL": "Pillow",
-        "win32api": "pywin32" # Added for Windows icon extraction
+        "win32api": "pywin32"
     }
+    
+    needs_restart = False
     for import_name, package_name in required_packages.items():
         try:
             __import__(import_name)
@@ -37,369 +96,422 @@ def check_and_install_dependencies():
             print(f"'{package_name}' (for {import_name}) not found. Installing...")
             try:
                 subprocess.check_call([sys.executable, "-m", "pip", "install", package_name])
+                needs_restart = True
             except subprocess.CalledProcessError:
                 print(f"FATAL: Failed to install {package_name}. Please install it manually.")
+                input("Press Enter to exit...")
+                sys.exit(1)
+            except Exception as e:
+                print(f"FATAL: Unexpected error installing {package_name}: {e}")
+                input("Press Enter to exit...")
                 sys.exit(1)
 
-# --- Pre-flight Checks ---
+# --- 2. Main Execution Entry Point ---
+
 if __name__ == "__main__":
+    # 1. Admin Check
     run_as_admin()
+    
+    # 2. Dependency Check
     check_and_install_dependencies()
 
-# --- Main Application ---
-import customtkinter as ctk
-import requests
-import shutil
-import tempfile
-import time
-import threading
-import io
-# import base64 # No longer needed
-from urllib3.exceptions import InsecureRequestWarning
-from tkinter import messagebox
-from PIL import Image, ImageTk
-
-# Import windows modules for icon extraction
-try:
-    import win32gui
-    import win32ui
-    import win32con
-    import win32api
-except ImportError:
-    # The dependency checker should have caught this, but as a safeguard:
-    print("FATAL: pywin32 libraries not found. Please run: pip install pywin32")
-    # We can't use messagebox here as tkinter isn't fully init'd
-    sys.exit(1)
-
-
-class WorldstrapApp(ctk.CTk):
-    VERSION_HASH_URL = "https://raw.githubusercontent.com/katdevelopments/World/refs/heads/main/compatibilityhash"
-    # Path to the executable from which to extract the icon
-    WORLD_EXE_PATH = r"C:\Program Files (x86)\World\Release\world.exe"
-    
-    def __init__(self):
-        super().__init__()
-
-        self.ROBLOX_INSTALL_PATH = self.get_roblox_install_path()
-        # self.temp_icon_path = None # No longer needed
-
-        # --- Window Configuration ---
-        self.title("World Strap Updater")
-        self.geometry("480x320")
-        self.resizable(True, True) # Allow the window to be resized
-        # self.overrideredirect(True) # Removed to allow dragging via title bar
-        self.attributes("-alpha", 0.0) # Start transparent for fade-in
-        self.attributes("-topmost", True)
+    # 3. Safe Imports
+    # These are safe to import now that dependencies are checked.
+    print("[Startup] Loading libraries...")
+    try:
+        import customtkinter as ctk
+        import requests
+        from urllib3.exceptions import InsecureRequestWarning
+        from tkinter import messagebox
+        import tkinter as tk
+        from PIL import Image, ImageTk
         
-        # Center the window
-        self.center_window()
+        # Windows specific imports
+        import win32gui
+        import win32ui
+        import win32con
+        import win32api
+    except ImportError as e:
+        print(f"Critical Import Error: {e}")
+        print("Please restart the application.")
+        input("Press Enter to exit...")
+        sys.exit(1)
 
-        # --- UI Elements ---
-        self.setup_ui()
+    # 4. App Class Definition
+    class WorldstrapApp(ctk.CTk):
+        VERSION_HASH_URL = "https://raw.githubusercontent.com/katdevelopments/World/refs/heads/main/compatibilityhash"
+        WORLD_EXE_PATH = r"C:\Program Files (x86)\World\Release\world.exe"
         
-        # --- Start the main process ---
-        self.fade_in()
-        self.start_process_thread()
+        def __init__(self):
+            super().__init__()
+            print("[App] Initializing UI...")
 
-    def center_window(self):
-        self.update_idletasks()
-        width = self.winfo_width()
-        height = self.winfo_height()
-        x = (self.winfo_screenwidth() // 2) - (width // 2)
-        y = (self.winfo_screenheight() // 2) - (height // 2)
-        self.geometry(f'{width}x{height}+{x}+{y}')
+            self.ROBLOX_INSTALL_PATH = self.get_roblox_install_path()
+            self.is_closing = False
 
-    def extract_icon_as_pil(self, exe_path, size=(32, 32)):
-        """Extracts the icon from an executable and returns it as a PIL Image."""
-        try:
-            # Extract large icon (index 0)
-            large_icons, small_icons = win32gui.ExtractIconEx(exe_path, 0, 1)
+            # --- Window Configuration ---
+            self.title("World Strap Updater")
+            self.geometry("500x350")
+            self.minsize(400, 300)
+            self.resizable(True, True)
             
-            if not large_icons:
-                if not small_icons:
-                    print(f"Error: No icons found in {exe_path}.")
-                    return None
-                print("Warning: No large icon found, using small icon.")
-                hicon = small_icons[0]
-                ico_x = win32api.GetSystemMetrics(win32con.SM_CXSMICON)
-                ico_y = win32api.GetSystemMetrics(win32con.SM_CYSMICON)
-                # Clean up other icons
-                for icon in large_icons: win32gui.DestroyIcon(icon)
-                for i, icon in enumerate(small_icons):
-                    if i != 0: win32gui.DestroyIcon(icon)
-            else:
-                hicon = large_icons[0]
-                ico_x = win32api.GetSystemMetrics(win32con.SM_CXICON)
-                ico_y = win32api.GetSystemMetrics(win32con.SM_CYICON)
-                # Clean up other icons
-                for i, icon in enumerate(large_icons):
-                    if i != 0: win32gui.DestroyIcon(icon)
-                for icon in small_icons: win32gui.DestroyIcon(icon)
+            # Start transparent for fade-in effect
+            self.attributes("-alpha", 0.0)
+            self.attributes("-topmost", True)
             
-            # Create a device context
-            hdc = win32ui.CreateDCFromHandle(win32gui.GetDC(0))
-            hbmp = win32ui.CreateBitmap()
-            hbmp.CreateCompatibleBitmap(hdc, ico_x, ico_y)
-            hmemdc = hdc.CreateCompatibleDC()
+            # Use dark theme
+            ctk.set_appearance_mode("Dark")
             
-            hmemdc.SelectObject(hbmp)
+            # Center the window
+            self.center_window()
+
+            # --- UI Setup ---
+            self.setup_ui()
             
-            # Draw the icon
-            hmemdc.DrawIcon((0, 0), hicon)
+            # --- Event Bindings ---
+            self.bind("<Configure>", self.on_resize)
+            self.protocol("WM_DELETE_WINDOW", self.on_close)
             
-            # Get bitmap bits
-            bmp_bits = hbmp.GetBitmapBits(True)
-            
-            # Create PIL image
-            img = Image.frombuffer(
-                'RGBA',
-                (ico_x, ico_y),
-                bmp_bits,
-                'raw',
-                'BGRA',
-                0,
-                1
+            # --- Start Process ---
+            self.fade_in()
+            self.start_process_thread()
+            print("[App] UI Initialized.")
+
+        def center_window(self):
+            self.update_idletasks()
+            width = self.winfo_width()
+            height = self.winfo_height()
+            x = (self.winfo_screenwidth() // 2) - (width // 2)
+            y = (self.winfo_screenheight() // 2) - (height // 2)
+            self.geometry(f'{width}x{height}+{x}+{y}')
+
+        def setup_ui(self):
+            # 1. Background Canvas
+            self.canvas = ctk.CTkCanvas(self, highlightthickness=0)
+            self.canvas.place(relx=0, rely=0, relwidth=1, relheight=1)
+
+            # 2. Main Container
+            self.main_frame = ctk.CTkFrame(self, fg_color="#1a1a1a", corner_radius=15, bg_color="transparent")
+            self.main_frame.place(relx=0.5, rely=0.5, anchor="center", relwidth=0.85, relheight=0.8)
+
+            # 3. Content
+            self.content_frame = ctk.CTkFrame(self.main_frame, fg_color="transparent")
+            self.content_frame.pack(fill="both", expand=True, padx=20, pady=20)
+
+            # Header
+            self.header_frame = ctk.CTkFrame(self.content_frame, fg_color="transparent")
+            self.header_frame.pack(pady=(10, 20))
+
+            # Icon
+            self.world_icon = self.load_icon()
+            self.icon_label = ctk.CTkLabel(self.header_frame, text="", image=self.world_icon)
+            self.icon_label.pack(side="left", padx=(0, 15))
+
+            # Title
+            self.title_label = ctk.CTkLabel(
+                self.header_frame, 
+                text="World Strap", 
+                font=ctk.CTkFont(family="Segoe UI", size=32, weight="bold")
             )
+            self.title_label.pack(side="left")
+
+            # Status Label
+            self.status_label = ctk.CTkLabel(
+                self.content_frame, 
+                text="Initializing...", 
+                font=ctk.CTkFont(family="Segoe UI", size=16),
+                text_color="#E0E0E0"
+            )
+            self.status_label.pack(pady=(10, 5))
+
+            # Progress Bar
+            self.progress_bar = ctk.CTkProgressBar(self.content_frame, width=350, height=12, corner_radius=6)
+            self.progress_bar.set(0)
+            self.progress_bar.pack(pady=15, fill="x")
+            self.progress_bar.configure(progress_color="#3B8ED0")
+
+            # Info Label
+            self.info_label = ctk.CTkLabel(
+                self.content_frame, 
+                text="", 
+                font=ctk.CTkFont(family="Segoe UI", size=12), 
+                text_color="#A0A0A0"
+            )
+            self.info_label.pack(side="bottom", pady=5)
+
+        def on_resize(self, event):
+            if event.widget == self:
+                self.draw_gradient()
+
+        def draw_gradient(self):
+            """Draws a smooth vertical gradient."""
+            width = self.winfo_width()
+            height = self.winfo_height()
             
-            # Clean up
-            win32gui.DestroyIcon(hicon)
-            hmemdc.DeleteDC()
-            hdc.DeleteDC()
-            win32gui.DeleteObject(hbmp.GetHandle())
-
-            if size != (ico_x, ico_y):
-                 img = img.resize(size, Image.Resampling.LANCZOS)
-
-            return img
+            self.canvas.delete("gradient")
             
-        except Exception as e:
-            print(f"Failed to extract icon from {self.WORLD_EXE_PATH}: {e}")
-            # Clean up just in case
-            try: win32gui.DestroyIcon(hicon)
-            except: pass
-            try: hmemdc.DeleteDC()
-            except: pass
-            try: hdc.DeleteDC()
-            except: pass
-            return None
-
-    def setup_ui(self):
-        """Creates and configures the visually enhanced user interface."""
-        # --- Background Gradient ---
-        self.canvas = ctk.CTkCanvas(self, width=480, height=320, highlightthickness=0)
-        self.canvas.pack(fill="both", expand=True)
-
-        # Create gradient
-        gradient_colors = ["#0d1b2a", "#1b263b", "#415a77"]
-        for i, color in enumerate(gradient_colors):
-            self.canvas.create_rectangle(0, i*107, 480, (i+1)*107, fill=color, outline="")
-
-        # --- Glassmorphism Frame ---
-        main_frame = ctk.CTkFrame(self, fg_color="transparent")
-        main_frame.place(relx=0.5, rely=0.5, anchor="center")
-
-        # --- Icon and Title ---
-        title_frame = ctk.CTkFrame(main_frame, fg_color="transparent")
-        title_frame.pack(pady=(20, 10))
-        
-        try:
-            # --- NEW ICON LOGIC ---
-            if not os.path.exists(self.WORLD_EXE_PATH):
-                print(f"Warning: Icon path not found: {self.WORLD_EXE_PATH}")
-                raise FileNotFoundError("World.exe not found at specified path")
-
-            icon_image = self.extract_icon_as_pil(self.WORLD_EXE_PATH, size=(32, 32))
+            # Define gradient colors (Deep Royal Blue -> Dark Slate)
+            c1 = (10, 20, 40)   # Top color (Darker)
+            c2 = (60, 80, 110)  # Bottom color (Lighter)
             
-            if icon_image:
-                self.world_icon = ctk.CTkImage(light_image=icon_image, size=(32, 32))
+            # Number of steps for the gradient (higher is smoother but more resource intensive)
+            steps = 100
+            
+            for i in range(steps):
+                # Interpolate colors
+                r = int(c1[0] + (c2[0] - c1[0]) * i / steps)
+                g = int(c1[1] + (c2[1] - c1[1]) * i / steps)
+                b = int(c1[2] + (c2[2] - c1[2]) * i / steps)
+                color_hex = f"#{r:02x}{g:02x}{b:02x}"
                 
-                icon_label = ctk.CTkLabel(title_frame, text="", image=self.world_icon)
-                icon_label.pack(side="left", padx=(0, 10))
-            else:
-                print("Warning: Could not extract icon. Continuing without it.")
-            # --- END NEW ICON LOGIC ---
+                # Calculate coordinates
+                y0 = i * (height / steps)
+                y1 = (i + 1) * (height / steps)
+                
+                # Draw rectangle (add +1 to height to prevent gaps)
+                self.canvas.create_rectangle(
+                    0, y0, width, y1 + 1, 
+                    fill=color_hex, outline="", tags="gradient"
+                )
+                
+            self.canvas.tag_lower("gradient")
 
-        except Exception as e:
-            print(f"Warning: Could not load application icon. Continuing without it. Error: {e}")
-            # No temp file to clean up anymore
+        def load_icon(self):
+            try:
+                if os.path.exists(self.WORLD_EXE_PATH):
+                    # Extract a slightly larger icon for high DPI displays if possible
+                    pil_img = self.extract_icon_as_pil(self.WORLD_EXE_PATH, size=(64, 64))
+                    
+                    if pil_img:
+                        # Set the actual Window Icon (Taskbar/Titlebar)
+                        # We need to keep a reference to the PhotoImage to prevent garbage collection
+                        self.app_icon = ImageTk.PhotoImage(pil_img)
+                        self.wm_iconphoto(False, self.app_icon)
 
-        title_label = ctk.CTkLabel(title_frame, text="World Strap", font=ctk.CTkFont(family="Segoe UI", size=36, weight="bold"))
-        title_label.pack(side="left")
+                        # Return CTkImage for the UI Label
+                        return ctk.CTkImage(light_image=pil_img, size=(48, 48))
+            except Exception as e:
+                print(f"Icon load warning: {e}")
+            return None
 
-        self.status_label = ctk.CTkLabel(main_frame, text="Initializing...", font=ctk.CTkFont(family="Segoe UI", size=16))
-        self.status_label.pack(pady=20)
+        def extract_icon_as_pil(self, exe_path, size=(32, 32)):
+            try:
+                large_icons, small_icons = win32gui.ExtractIconEx(exe_path, 0, 1)
+                hicon = None
+                
+                if large_icons: 
+                    hicon = large_icons[0]
+                elif small_icons: 
+                    hicon = small_icons[0]
+                else: 
+                    return None
 
-        self.progress_bar = ctk.CTkProgressBar(main_frame, width=400, height=10)
-        self.progress_bar.set(0)
-        self.progress_bar.pack(pady=15)
-        
-        self.info_label = ctk.CTkLabel(main_frame, text="", font=ctk.CTkFont(family="Segoe UI", size=12), text_color="#A9A9A9")
-        self.info_label.pack(pady=10)
+                if large_icons:
+                    for i in large_icons[1:]: win32gui.DestroyIcon(i)
+                    if not hicon and large_icons: hicon = large_icons[0]
+                if small_icons:
+                    for i in small_icons: 
+                        if i != hicon: win32gui.DestroyIcon(i)
 
-    def start_process_thread(self):
-        thread = threading.Thread(target=self.run_update_process)
-        thread.daemon = True
-        thread.start()
+                hdc = win32ui.CreateDCFromHandle(win32gui.GetDC(0))
+                hbmp = win32ui.CreateBitmap()
+                hbmp.CreateCompatibleBitmap(hdc, size[0], size[1])
+                hmemdc = hdc.CreateCompatibleDC()
+                hmemdc.SelectObject(hbmp)
+                
+                hmemdc.DrawIcon((0, 0), hicon)
+                bmp_bits = hbmp.GetBitmapBits(True)
+                
+                img = Image.frombuffer(
+                    'RGBA', 
+                    (size[0], size[1]), 
+                    bmp_bits, 'raw', 'BGRA', 0, 1
+                )
+                
+                win32gui.DestroyIcon(hicon)
+                hmemdc.DeleteDC()
+                hdc.DeleteDC()
+                win32gui.DeleteObject(hbmp.GetHandle())
+                
+                return img
+            except Exception:
+                return None
 
-    def run_update_process(self):
-        installer_path = None
-        try:
-            self.update_status("Checking API compatibility...")
-            self.progress_bar.set(0.1)
-            target_hash = self.get_target_version_hash()
-            if not target_hash: return
+        # --- Threading & Logic ---
 
-            self.update_status(f"Required version: {target_hash[:12]}...")
-            self.progress_bar.set(0.2)
+        def start_process_thread(self):
+            thread = threading.Thread(target=self.run_update_process)
+            thread.daemon = True
+            thread.start()
+
+        def thread_safe_update(self, func, *args):
+            if not self.is_closing:
+                self.after(0, lambda: func(*args))
+
+        def update_ui_status(self, text, color=None, progress=None, info=None):
+            if self.is_closing: return
             
-            if self.is_version_installed(target_hash):
-                self.update_status("Roblox is up to date.", "green")
-                self.progress_bar.set(1.0)
-                self.after(3000, self.close_app)
-                return
+            self.status_label.configure(text=text)
+            if color:
+                text_color = "#2ECC71" if color == "green" else "#E74C3C" if color == "red" else "#E0E0E0"
+                self.status_label.configure(text_color=text_color)
+            
+            if progress is not None:
+                self.progress_bar.set(progress)
+                
+            if info is not None:
+                self.info_label.configure(text=info)
 
-            self.update_status("Managing API compatibility...")
-            self.remove_outdated_versions(target_hash)
+        def run_update_process(self):
+            installer_path = None
+            try:
+                self.thread_safe_update(self.update_ui_status, "Checking API compatibility...", None, 0.1)
+                time.sleep(0.5) 
+                
+                target_hash = self.get_target_version_hash()
+                if not target_hash: return
 
-            self.update_status("Downloading compatibility update...")
-            installer_path = self.download_installer(target_hash)
-            if not installer_path: return
+                self.thread_safe_update(self.update_ui_status, f"Target: {target_hash[:8]}...", None, 0.2)
+                
+                if self.is_version_installed(target_hash):
+                    self.thread_safe_update(self.update_ui_status, "Roblox is up to date!", "green", 1.0)
+                    time.sleep(2)
+                    self.thread_safe_update(self.close_app)
+                    return
 
-            self.update_status("Applying compatibility update...")
-            self.progress_bar.set(0.8)
-            self.run_silent_installer(installer_path)
+                self.thread_safe_update(self.update_ui_status, "Cleaning old versions...", None, 0.3)
+                self.remove_outdated_versions(target_hash)
 
-            self.update_status("Verifying update...")
-            self.progress_bar.set(0.95)
-            if self.is_version_installed(target_hash, verify=True):
-                self.update_status("Update complete.", "green")
-                self.progress_bar.set(1.0)
-                self.after(3000, self.close_app)
-            else:
-                self.handle_error("Update failed. Could not find new version.")
-        except Exception as e:
-            self.handle_error(f"A critical error occurred: {e}")
-        finally:
-            if installer_path and os.path.exists(installer_path):
-                os.remove(installer_path)
+                self.thread_safe_update(self.update_ui_status, "Downloading update...", None, 0.4)
+                installer_path = self.download_installer(target_hash)
+                if not installer_path: return
 
-    def get_target_version_hash(self):
-        try:
-            requests.packages.urllib3.disable_warnings(category=InsecureRequestWarning)
-            response = requests.get(self.VERSION_HASH_URL, verify=False, timeout=10)
-            response.raise_for_status()
-            return response.text.strip()
-        except requests.RequestException as e:
-            self.handle_error(f"Could not fetch compatibility hash: {e}")
-            return None
+                self.thread_safe_update(self.update_ui_status, "Installing...", None, 0.8, "Please wait, this may take a moment.")
+                self.run_silent_installer(installer_path)
 
-    def download_installer(self, version_hash):
-        url = f"https://setup.rbxcdn.com/version-{version_hash}-RobloxPlayerInstaller.exe"
-        installer_path = os.path.join(tempfile.gettempdir(), f"RobloxInstaller_{version_hash}.exe")
-        try:
-            with requests.get(url, stream=True, verify=False, timeout=300) as r:
-                r.raise_for_status()
-                total_size = int(r.headers.get('content-length', 0))
-                with open(installer_path, 'wb') as f:
-                    bytes_downloaded = 0
-                    for chunk in r.iter_content(chunk_size=8192):
-                        f.write(chunk)
-                        bytes_downloaded += len(chunk)
-                        if total_size > 0:
-                            progress = (bytes_downloaded / total_size)
-                            self.progress_bar.set(0.2 + (progress * 0.6))
-                            self.info_label.configure(text=f"{bytes_downloaded/1024/1024:.1f} MB / {total_size/1024/1024:.1f} MB")
-            self.info_label.configure(text="")
-            return installer_path
-        except requests.RequestException as e:
-            self.handle_error(f"Download failed: {e}")
-            return None
+                self.thread_safe_update(self.update_ui_status, "Verifying...", None, 0.9)
+                if self.is_version_installed(target_hash, verify=True):
+                    self.thread_safe_update(self.update_ui_status, "Update Complete!", "green", 1.0)
+                    time.sleep(2)
+                    self.thread_safe_update(self.close_app)
+                else:
+                    self.thread_safe_update(self.handle_error, "Verification failed. Roblox may not have installed correctly.")
 
-    def run_silent_installer(self, installer_path):
-        try:
-            subprocess.run([installer_path, "/quiet"], timeout=180)
-            time.sleep(10)
-            return True
-        except Exception as e:
-            # We ignore errors here as per the user's request
-            print(f"Installer may have finished with a non-zero exit code, proceeding anyway. Details: {e}")
-            return True
+            except Exception as e:
+                self.thread_safe_update(self.handle_error, f"Critical Error: {str(e)}")
+            finally:
+                if installer_path and os.path.exists(installer_path):
+                    try: os.remove(installer_path)
+                    except: pass
 
+        def get_target_version_hash(self):
+            try:
+                requests.packages.urllib3.disable_warnings(category=InsecureRequestWarning)
+                response = requests.get(self.VERSION_HASH_URL, verify=False, timeout=10)
+                response.raise_for_status()
+                return response.text.strip()
+            except Exception as e:
+                self.thread_safe_update(self.handle_error, f"Hash Check Failed: {e}")
+                return None
 
-    def is_version_installed(self, version_hash, verify=False):
-        version_folder = os.path.join(self.ROBLOX_INSTALL_PATH, f"version-{version_hash}")
-        target_exe = os.path.join(version_folder, "RobloxPlayerBeta.exe")
-        if verify:
-            timeout, start_time = 60, time.time()
-            while not os.path.exists(target_exe):
-                time.sleep(2)
-                if time.time() - start_time > timeout: return False
-        return os.path.exists(target_exe)
-    
-    def remove_outdated_versions(self, target_hash):
-        if not os.path.exists(self.ROBLOX_INSTALL_PATH): return
-        target_folder_name = f"version-{target_hash}"
-        for item in os.listdir(self.ROBLOX_INSTALL_PATH):
-            if item.startswith("version-") and item != target_folder_name:
-                try:
-                    shutil.rmtree(os.path.join(self.ROBLOX_INSTALL_PATH, item))
-                except OSError: pass
+        def download_installer(self, version_hash):
+            url = f"https://setup.rbxcdn.com/version-{version_hash}-RobloxPlayerInstaller.exe"
+            path = os.path.join(tempfile.gettempdir(), f"RobloxInstaller_{version_hash}.exe")
+            
+            try:
+                with requests.get(url, stream=True, verify=False, timeout=300) as r:
+                    r.raise_for_status()
+                    total = int(r.headers.get('content-length', 0))
+                    downloaded = 0
+                    
+                    with open(path, 'wb') as f:
+                        for chunk in r.iter_content(8192):
+                            if self.is_closing: return None
+                            f.write(chunk)
+                            downloaded += len(chunk)
+                            if total > 0:
+                                prog = 0.4 + (downloaded / total * 0.4)
+                                mb_curr = downloaded / 1024 / 1024
+                                mb_total = total / 1024 / 1024
+                                if downloaded % (1024*128) == 0: 
+                                    self.thread_safe_update(self.update_ui_status, "Downloading...", None, prog, f"{mb_curr:.1f}MB / {mb_total:.1f}MB")
+                return path
+            except Exception as e:
+                self.thread_safe_update(self.handle_error, f"Download Error: {e}")
+                return None
 
-    def fade_in(self):
-        alpha = self.attributes("-alpha")
-        if alpha < 1.0:
-            alpha += 0.05
-            self.attributes("-alpha", alpha)
-            self.after(15, self.fade_in)
+        def run_silent_installer(self, path):
+            try:
+                subprocess.run([path, "/quiet"], timeout=180, check=False)
+                time.sleep(5)
+                return True
+            except Exception as e:
+                print(f"Installer warning: {e}")
+                return True
 
-    def close_app(self):
-        """Fades the window out smoothly and then closes the application."""
-        try:
-            alpha = self.attributes("-alpha")
-            if alpha > 0.1:
-                alpha -= 0.1
-                self.attributes("-alpha", alpha)
-                self.after(20, self.close_app)
-            else:
-                self.destroy()
-        except Exception:
+        def is_version_installed(self, version_hash, verify=False):
+            folder = os.path.join(self.ROBLOX_INSTALL_PATH, f"version-{version_hash}")
+            exe = os.path.join(folder, "RobloxPlayerBeta.exe")
+            
+            if verify:
+                start = time.time()
+                while time.time() - start < 60:
+                    if os.path.exists(exe): return True
+                    time.sleep(1)
+                return False
+            return os.path.exists(exe)
+
+        def remove_outdated_versions(self, target_hash):
+            if not os.path.exists(self.ROBLOX_INSTALL_PATH): return
+            target_name = f"version-{target_hash}"
+            
+            for item in os.listdir(self.ROBLOX_INSTALL_PATH):
+                if item.startswith("version-") and item != target_name:
+                    try:
+                        shutil.rmtree(os.path.join(self.ROBLOX_INSTALL_PATH, item))
+                    except: pass
+
+        def get_roblox_install_path(self):
+            pf = os.environ.get("ProgramFiles(x86)", os.environ.get("ProgramFiles"))
+            return os.path.join(pf, 'Roblox', 'Versions')
+
+        def fade_in(self):
+            try:
+                alpha = self.attributes("-alpha")
+                if alpha < 1.0:
+                    self.attributes("-alpha", alpha + 0.05)
+                    self.after(20, self.fade_in)
+            except: pass
+
+        def on_close(self):
+            self.is_closing = True
             self.destroy()
+            sys.exit(0)
 
-    def get_roblox_install_path(self):
-        program_files = os.environ.get("ProgramFiles(x86)", os.environ.get("ProgramFiles"))
-        return os.path.join(program_files, 'Roblox', 'Versions')
+        def close_app(self):
+            self.is_closing = True
+            try:
+                alpha = self.attributes("-alpha")
+                if alpha > 0.0:
+                    self.attributes("-alpha", alpha - 0.1)
+                    self.after(30, self.close_app)
+                else:
+                    self.destroy()
+                    sys.exit(0)
+            except:
+                self.destroy()
+                sys.exit(0)
 
-    def update_status(self, message, color=None):
-        self.status_label.configure(text=message)
-        if color == "green":
-            self.status_label.configure(text_color="#2ECC71")
-        elif color == "red":
-            self.status_label.configure(text_color="#E74C3C")
-        else:
-            self.status_label.configure(text_color="white")
+        def handle_error(self, message):
+            if not self.is_closing:
+                messagebox.showerror("World Strap Error", str(message))
+                self.close_app()
 
-
-    def show_error_dialog(self, message):
-        messagebox.showerror("Error", message)
-        self.update_status("An error occurred. Exiting.", "red")
-        self.after(3000, self.close_app)
-
-    def handle_error(self, message):
-        self.after(0, lambda: self.show_error_dialog(str(message)))
-
-if __name__ == "__main__":
+    # 5. Run App
+    print("[Startup] Starting application loop...")
     try:
         app = WorldstrapApp()
         app.mainloop()
-        sys.exit(0)
     except Exception as e:
-        # --- FIX: Use standard tkinter for the final error message to prevent crashing ---
-        try:
-            import tkinter as tk
-            from tkinter import messagebox
-            root = tk.Tk()
-            root.withdraw()
-            messagebox.showerror("Critical Error", f"A critical startup error occurred:\n\n{e}")
-        except ImportError:
-            # Fallback for systems without even basic tkinter
-            print(f"A critical error occurred and the GUI could not be displayed: {e}")
+        print(f"CRITICAL ERROR IN MAINLOOP: {e}")
+        input("Press Enter to exit...")
