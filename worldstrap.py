@@ -9,12 +9,7 @@ import tempfile
 import shutil
 import traceback
 
-# --- 0. Global Crash Handler (Prevents instant closing) ---
 def global_exception_handler(exc_type, exc_value, exc_traceback):
-    """
-    Catches ALL unhandled exceptions to prevent the window from 
-    vanishing instantly without an error message.
-    """
     print("\n" + "="*60)
     print("CRITICAL UNHANDLED EXCEPTION")
     print("="*60)
@@ -24,17 +19,9 @@ def global_exception_handler(exc_type, exc_value, exc_traceback):
     input("Press Enter to exit...")
     sys.exit(1)
 
-# Register the handler immediately
 sys.excepthook = global_exception_handler
 
-
-# --- 1. Admin & Dependency Checks ---
-
 def run_as_admin():
-    """
-    Checks if the script is running with admin privileges. If not, it re-launches
-    itself with a UAC prompt and exits the current instance.
-    """
     print("[Startup] Checking permissions...")
     try:
         is_admin = (os.getuid() == 0)
@@ -46,20 +33,16 @@ def run_as_admin():
 
     if not is_admin:
         print("[Startup] Requesting elevation...")
-        # Re-launch with admin rights
         script_path = os.path.abspath(sys.argv[0])
         params = ' '.join([f'"{arg}"' for arg in sys.argv[1:]])
         
         try:
             if not script_path.endswith(".exe"):
-                # If running as a .py script
                 cmd = f'"{script_path}" {params}'
                 ret = ctypes.windll.shell32.ShellExecuteW(None, "runas", sys.executable, cmd, None, 1)
             else:
-                # If running as a compiled exe
                 ret = ctypes.windll.shell32.ShellExecuteW(None, "runas", sys.executable, params, None, 1)
             
-            # Check if the shell execution was successful (returns > 32 on success)
             if int(ret) > 32:
                 print("[Startup] Elevation request sent. Exiting parent process.")
                 sys.exit(0)
@@ -75,7 +58,6 @@ def run_as_admin():
         print("[Startup] Running with Admin privileges.")
 
 def check_and_install_dependencies():
-    """Checks for required packages and installs them if they are missing."""
     print("[Startup] Checking dependencies...")
     user_site_packages = site.getusersitepackages()
     if user_site_packages not in sys.path:
@@ -106,17 +88,11 @@ def check_and_install_dependencies():
                 input("Press Enter to exit...")
                 sys.exit(1)
 
-# --- 2. Main Execution Entry Point ---
-
 if __name__ == "__main__":
-    # 1. Admin Check
     run_as_admin()
     
-    # 2. Dependency Check
     check_and_install_dependencies()
 
-    # 3. Safe Imports
-    # These are safe to import now that dependencies are checked.
     print("[Startup] Loading libraries...")
     try:
         import customtkinter as ctk
@@ -126,7 +102,6 @@ if __name__ == "__main__":
         import tkinter as tk
         from PIL import Image, ImageTk
         
-        # Windows specific imports
         import win32gui
         import win32ui
         import win32con
@@ -137,7 +112,6 @@ if __name__ == "__main__":
         input("Press Enter to exit...")
         sys.exit(1)
 
-    # 4. App Class Definition
     class WorldstrapApp(ctk.CTk):
         VERSION_HASH_URL = "https://raw.githubusercontent.com/katdevelopments/World/refs/heads/main/compatibilityhash"
         WORLD_EXE_PATH = r"C:\Program Files (x86)\World\Release\world.exe"
@@ -149,30 +123,23 @@ if __name__ == "__main__":
             self.ROBLOX_INSTALL_PATH = self.get_roblox_install_path()
             self.is_closing = False
 
-            # --- Window Configuration ---
             self.title("World Strap Updater")
             self.geometry("500x350")
             self.minsize(400, 300)
             self.resizable(True, True)
             
-            # Start transparent for fade-in effect
             self.attributes("-alpha", 0.0)
             self.attributes("-topmost", True)
             
-            # Use dark theme
             ctk.set_appearance_mode("Dark")
             
-            # Center the window
             self.center_window()
 
-            # --- UI Setup ---
             self.setup_ui()
             
-            # --- Event Bindings ---
             self.bind("<Configure>", self.on_resize)
             self.protocol("WM_DELETE_WINDOW", self.on_close)
             
-            # --- Start Process ---
             self.fade_in()
             self.start_process_thread()
             print("[App] UI Initialized.")
@@ -186,28 +153,22 @@ if __name__ == "__main__":
             self.geometry(f'{width}x{height}+{x}+{y}')
 
         def setup_ui(self):
-            # 1. Background Canvas
             self.canvas = ctk.CTkCanvas(self, highlightthickness=0)
             self.canvas.place(relx=0, rely=0, relwidth=1, relheight=1)
 
-            # 2. Main Container
             self.main_frame = ctk.CTkFrame(self, fg_color="#1a1a1a", corner_radius=15, bg_color="transparent")
             self.main_frame.place(relx=0.5, rely=0.5, anchor="center", relwidth=0.85, relheight=0.8)
 
-            # 3. Content
             self.content_frame = ctk.CTkFrame(self.main_frame, fg_color="transparent")
             self.content_frame.pack(fill="both", expand=True, padx=20, pady=20)
 
-            # Header
             self.header_frame = ctk.CTkFrame(self.content_frame, fg_color="transparent")
             self.header_frame.pack(pady=(10, 20))
 
-            # Icon
             self.world_icon = self.load_icon()
             self.icon_label = ctk.CTkLabel(self.header_frame, text="", image=self.world_icon)
             self.icon_label.pack(side="left", padx=(0, 15))
 
-            # Title
             self.title_label = ctk.CTkLabel(
                 self.header_frame, 
                 text="World Strap", 
@@ -215,7 +176,6 @@ if __name__ == "__main__":
             )
             self.title_label.pack(side="left")
 
-            # Status Label
             self.status_label = ctk.CTkLabel(
                 self.content_frame, 
                 text="Initializing...", 
@@ -224,13 +184,11 @@ if __name__ == "__main__":
             )
             self.status_label.pack(pady=(10, 5))
 
-            # Progress Bar
             self.progress_bar = ctk.CTkProgressBar(self.content_frame, width=350, height=12, corner_radius=6)
             self.progress_bar.set(0)
             self.progress_bar.pack(pady=15, fill="x")
             self.progress_bar.configure(progress_color="#3B8ED0")
 
-            # Info Label
             self.info_label = ctk.CTkLabel(
                 self.content_frame, 
                 text="", 
@@ -244,31 +202,25 @@ if __name__ == "__main__":
                 self.draw_gradient()
 
         def draw_gradient(self):
-            """Draws a smooth vertical gradient."""
             width = self.winfo_width()
             height = self.winfo_height()
             
             self.canvas.delete("gradient")
             
-            # Define gradient colors (Deep Royal Blue -> Dark Slate)
-            c1 = (10, 20, 40)   # Top color (Darker)
-            c2 = (60, 80, 110)  # Bottom color (Lighter)
+            c1 = (10, 20, 40)
+            c2 = (60, 80, 110)
             
-            # Number of steps for the gradient (higher is smoother but more resource intensive)
             steps = 100
             
             for i in range(steps):
-                # Interpolate colors
                 r = int(c1[0] + (c2[0] - c1[0]) * i / steps)
                 g = int(c1[1] + (c2[1] - c1[1]) * i / steps)
                 b = int(c1[2] + (c2[2] - c1[2]) * i / steps)
                 color_hex = f"#{r:02x}{g:02x}{b:02x}"
                 
-                # Calculate coordinates
                 y0 = i * (height / steps)
                 y1 = (i + 1) * (height / steps)
                 
-                # Draw rectangle (add +1 to height to prevent gaps)
                 self.canvas.create_rectangle(
                     0, y0, width, y1 + 1, 
                     fill=color_hex, outline="", tags="gradient"
@@ -279,16 +231,12 @@ if __name__ == "__main__":
         def load_icon(self):
             try:
                 if os.path.exists(self.WORLD_EXE_PATH):
-                    # Extract a slightly larger icon for high DPI displays if possible
                     pil_img = self.extract_icon_as_pil(self.WORLD_EXE_PATH, size=(64, 64))
                     
                     if pil_img:
-                        # Set the actual Window Icon (Taskbar/Titlebar)
-                        # We need to keep a reference to the PhotoImage to prevent garbage collection
                         self.app_icon = ImageTk.PhotoImage(pil_img)
                         self.wm_iconphoto(False, self.app_icon)
 
-                        # Return CTkImage for the UI Label
                         return ctk.CTkImage(light_image=pil_img, size=(48, 48))
             except Exception as e:
                 print(f"Icon load warning: {e}")
@@ -336,8 +284,6 @@ if __name__ == "__main__":
                 return img
             except Exception:
                 return None
-
-        # --- Threading & Logic ---
 
         def start_process_thread(self):
             thread = threading.Thread(target=self.run_update_process)
@@ -507,7 +453,6 @@ if __name__ == "__main__":
                 messagebox.showerror("World Strap Error", str(message))
                 self.close_app()
 
-    # 5. Run App
     print("[Startup] Starting application loop...")
     try:
         app = WorldstrapApp()
