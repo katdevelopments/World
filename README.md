@@ -1,4 +1,5 @@
 <div align="center">
+  <img width="200" src="https://useworld.xyz/logo.png" alt="World Client Logo" />
   <h1>World Client Installer</h1>
   <p>The official installer and bootstrapper for World Client.</p>
 </div>
